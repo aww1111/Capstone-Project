@@ -1,0 +1,301 @@
+import React, { useState, useEffect, useRef } from "react";
+import { motion } from "framer-motion";
+// 若使用 shadcn/ui 或 lucide-react，可依專案需求匯入元件與圖示
+// import { Card, CardContent } from "@/components/ui/card";
+// import { Send } from 'lucide-react'
+
+/*
+  LegalAI UI 模組（單檔 React 組件）
+  - 使用 Tailwind CSS 作排版
+  - 預設為一個前端示範介面：左側側欄（歷史、設定）、中間聊天視窗、右側結果面板
+  - 包含：訊息輸入、即時建議、法條卡片清單、匯出記錄功能
+  - 可作為 demo / prototype 直接拿去整合到前後端
+
+  使用說明：
+  1. 在您的 React 專案（Vite / CRA / Next）中新增此檔案。
+  2. 確保專案安裝並設定 Tailwind CSS。
+  3. 可視需求替換假資料與 API 呼叫（目前以模擬函式示範）。
+*/
+
+// ---- Mock helpers (開發時以真實 API 替換) ----
+const mockSuggest = (text) => {
+  if (!text) return [];
+  const s = text.toLowerCase();
+  const suggestions = [
+    "租屋押金糾紛",
+    "勞資契約爭議",
+    "解除契約程序",
+    "騷擾/性別相關",
+    "消費糾紛",
+  ];
+  return suggestions.filter((x) => x.includes(s)).slice(0, 5);
+};
+
+const mockLawResults = (query) => {
+  if (!query) return [];
+  return [
+    {
+      id: "CIV101",
+      title: "民法第xxx條（契約解除）",
+      summary:
+        "當事人一方違反契約重大義務，另一方得依規定解除契約並請求損害賠償。",
+      details:
+        "條文原文：甲方或乙方之一方有重大違反時，得依民法第XXX條行使解除權。實務上需觀察違約行為是否構成重大違反。",
+      tags: ["契約", "解除", "民法"],
+    },
+    {
+      id: "LAB201",
+      title: "勞動基準法第xx條（資遣）",
+      summary:
+        "雇主資遣勞工應依規定給予資遣費並履行通知義務。",
+      details:
+        "條文原文：雇主資遣時，應依勞動基準法第XX條規定支付資遣費，並提前通知。",
+      tags: ["勞動", "資遣"],
+    },
+  ];
+};
+
+// ---- UI Components ----
+function Sidebar({ history, onSelectHistory }) {
+  return (
+    <aside className="w-72 bg-white/80 backdrop-blur-sm border-r border-gray-200 p-4 flex flex-col gap-4">
+      <h3 className="text-lg font-semibold">法律導引系統</h3>
+      <div className="text-sm text-gray-500">歷史諮詢</div>
+      <div className="flex-1 overflow-auto space-y-2">
+        {history.length === 0 && (
+          <div className="text-xs text-gray-400">尚無紀錄，開始新諮詢吧。</div>
+        )}
+        {history.map((h, idx) => (
+          <button
+            key={idx}
+            onClick={() => onSelectHistory(h)}
+            className="w-full text-left p-2 rounded-md hover:bg-gray-50 border border-transparent hover:border-gray-100"
+          >
+            <div className="text-sm font-medium truncate">{h.query}</div>
+            <div className="text-xs text-gray-400">{h.date}</div>
+          </button>
+        ))}
+      </div>
+      <div className="pt-2">
+        <small className="text-xs text-gray-500">設定 | 關於</small>
+      </div>
+    </aside>
+  );
+}
+
+function MessageBubble({ who, text }) {
+  const isUser = who === "user";
+  return (
+    <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
+      <motion.div
+        initial={{ opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        className={`max-w-[72%] p-3 rounded-lg text-sm ${
+          isUser ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-800"
+        }`}
+      >
+        {text}
+      </motion.div>
+    </div>
+  );
+}
+
+function LawCard({ law }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="border rounded-md p-3 bg-white/60">
+      <div className="flex justify-between items-start gap-2">
+        <div>
+          <div className="font-medium">{law.title}</div>
+          <div className="text-xs text-gray-500">{law.summary}</div>
+        </div>
+        <div className="flex flex-col items-end gap-2">
+          <div className="text-xs text-gray-400">{law.tags.join(" • ")}</div>
+          <button
+            onClick={() => setOpen((s) => !s)}
+            className="text-xs px-2 py-1 rounded-md border text-gray-600"
+          >
+            {open ? "收合" : "展開"}
+          </button>
+        </div>
+      </div>
+      {open && (
+        <div className="mt-3 text-sm text-gray-700 whitespace-pre-line">{law.details}</div>
+      )}
+    </div>
+  );
+}
+
+// ---- Main UI ----
+export default function LegalAI_UI_Module() {
+  const [input, setInput] = useState("");
+  const [suggestions, setSuggestions] = useState([]);
+  const [messages, setMessages] = useState([]);
+  const [laws, setLaws] = useState([]);
+  const [history, setHistory] = useState([]);
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    setSuggestions(mockSuggest(input));
+  }, [input]);
+
+  const sendQuery = async (q) => {
+    if (!q || q.trim() === "") return;
+    const now = new Date();
+    const dateStr = now.toLocaleString();
+
+    // append user message
+    setMessages((m) => [...m, { who: "user", text: q }]);
+
+    // 模擬後端處理：推入系統回應與法條檢索結果
+    setTimeout(() => {
+      const result = `已分析：可能涉及的法律領域包含：契約、消費者保護。建議保存書面文件與通訊記錄，並考慮尋求法律諮詢。`;
+      setMessages((m) => [...m, { who: "ai", text: result }]);
+      const r = mockLawResults(q);
+      setLaws(r);
+
+      // 儲存歷史記錄
+      const record = { query: q, date: dateStr, results: r };
+      setHistory((h) => [record, ...h].slice(0, 50));
+    }, 800);
+  };
+
+  const handleSend = () => {
+    sendQuery(input);
+    setInput("");
+    setSuggestions([]);
+    inputRef.current?.focus();
+  };
+
+  const handleExport = () => {
+    const payload = { history, messages, laws, exportedAt: new Date().toISOString() };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `legalai_records_${new Date().toISOString()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const selectHistory = (h) => {
+    setMessages((m) => [...m, { who: "user", text: `查看歷史：${h.query}` }]);
+    setLaws(h.results || []);
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-6">
+      <div className="max-w-7xl mx-auto grid grid-cols-12 gap-6">
+        <div className="col-span-3">
+          <Sidebar history={history} onSelectHistory={selectHistory} />
+        </div>
+
+        <main className="col-span-6 bg-white/80 rounded-xl shadow p-4 flex flex-col">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-xl font-semibold">案件導引對話</h2>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleExport}
+                className="text-sm px-3 py-1 rounded-md border hover:bg-gray-50"
+              >
+                匯出紀錄
+              </button>
+            </div>
+          </div>
+
+          <div className="flex-1 overflow-auto p-2 space-y-3" style={{ minHeight: 320 }}>
+            {messages.length === 0 && (
+              <div className="text-center text-sm text-gray-400 py-6">輸入案情，系統會引導你澄清細節。</div>
+            )}
+            {messages.map((m, i) => (
+              <MessageBubble key={i} who={m.who} text={m.text} />
+            ))}
+          </div>
+
+          <div className="mt-3">
+            <div className="relative">
+              <input
+                ref={inputRef}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSend();
+                  }
+                }}
+                placeholder="請描述你的案情（例如：房東不退押金、公司無故資遣）"
+                className="w-full p-3 rounded-lg border focus:outline-none focus:ring-2 focus:ring-blue-200"
+              />
+              <div className="absolute right-2 top-1/2 -translate-y-1/2">
+                <button
+                  onClick={handleSend}
+                  className="px-3 py-2 rounded-md bg-blue-600 text-white text-sm"
+                >
+                  送出
+                </button>
+              </div>
+            </div>
+
+            {suggestions.length > 0 && (
+              <div className="mt-2 grid grid-cols-3 gap-2">
+                {suggestions.map((s, i) => (
+                  <button
+                    key={i}
+                    onClick={() => {
+                      setInput(s);
+                      setSuggestions([]);
+                      inputRef.current?.focus();
+                    }}
+                    className="text-xs p-2 rounded-md border hover:bg-gray-50"
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </main>
+
+        <aside className="col-span-3">
+          <div className="space-y-4">
+            <div className="bg-white/80 rounded-xl p-4 shadow">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-sm font-semibold">相關法條與白話摘要</h3>
+                <div className="text-xs text-gray-400">自動檢索</div>
+              </div>
+
+              <div className="space-y-3 max-h-[430px] overflow-auto">
+                {laws.length === 0 && (
+                  <div className="text-xs text-gray-400">尚未有檢索結果，送出查詢以獲得建議。</div>
+                )}
+                {laws.map((l) => (
+                  <LawCard key={l.id} law={l} />
+                ))}
+              </div>
+            </div>
+
+            <div className="bg-white/80 rounded-xl p-4 shadow">
+              <h3 className="text-sm font-semibold mb-2">建議行動</h3>
+              <ul className="text-sm list-disc pl-5 space-y-1 text-gray-700">
+                <li>保存原始合約、收據與通訊紀錄（截圖/備份）。</li>
+                <li>若涉及人身安全、立即向警察通報。</li>
+                <li>考慮聯繫地區法律扶助或消費者保護單位。</li>
+                <li>必要時尋求律師專業協助或調解程序。</li>
+              </ul>
+            </div>
+
+            <div className="bg-white/80 rounded-xl p-4 shadow">
+              <h3 className="text-sm font-semibold mb-2">快速連結</h3>
+              <div className="flex flex-col gap-2 text-sm">
+                <a className="underline text-blue-600">法律扶助專線</a>
+                <a className="underline text-blue-600">地方法院服務</a>
+                <a className="underline text-blue-600">消費者保護網站</a>
+              </div>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </div>
+  );
+}
